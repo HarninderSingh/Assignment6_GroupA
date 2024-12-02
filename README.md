@@ -1,3 +1,4 @@
+## GROUP E
 ## GO API FOR Toronto Time
 **How to run this application**
 # Download or clone the zip to a directory
@@ -5,4 +6,4 @@
 # run main.go
 # curl localhost:8080/current-time
 # go to ur db to view time logs
-# Assignment6_GroupA
+# Assignment6_GroupE
