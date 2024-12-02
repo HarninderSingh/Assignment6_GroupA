@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -17,8 +21,12 @@ type Response struct {
 }
 
 func main() {
-	// MySQL DSN: username:password@tcp(host:port)/database
-	dsn := "root:@tcp(127.0.0.1:3306)/time_logging" // Update 'root' and '' with your username and password if set
+	// Get the DSN from the environment variable
+	dsn := os.Getenv("DB_DSN")
+	if dsn == "" {
+		log.Fatal("DB_DSN environment variable is not set")
+	}
+	fmt.Printf("Using DSN: %s\n", dsn)
 
 	// Open a connection to MySQL
 	db, err := sql.Open("mysql", dsn)
@@ -33,8 +41,9 @@ func main() {
 	}
 	fmt.Println("Connected to MySQL Database.")
 
-	// HTTP handler for /current-time
-	http.HandleFunc("/current-time", func(w http.ResponseWriter, r *http.Request) {
+	// Setup HTTP server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/current-time", func(w http.ResponseWriter, r *http.Request) {
 		loc, _ := time.LoadLocation("America/Toronto")
 		currentTime := time.Now().In(loc)
 
@@ -52,7 +61,34 @@ func main() {
 		json.NewEncoder(w).Encode(response)
 	})
 
-	// Start the server
-	log.Println("Server running on port 8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+	}
+
+	// Channel to listen for termination signals
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start server in a goroutine
+	go func() {
+		log.Println("Server running on port 8080")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("ListenAndServe error: %v", err)
+		}
+	}()
+
+	// Wait for termination signal
+	<-stop
+	log.Println("Shutting down server...")
+
+	// Create context with timeout for graceful shutdown
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatalf("Server Shutdown Failed: %v", err)
+	}
+
+	log.Println("Server exited gracefully.")
 }
